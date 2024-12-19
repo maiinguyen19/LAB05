@@ -69,7 +69,23 @@ END
 
 
 --15. Học viên chỉ được thi một môn học nào đó khi lớp của học viên đã học xong môn học này. 
+GO
+CREATE TRIGGER KiemTraThiMonHoc
+BEFORE INSERT ON DangKyThi
+FOR EACH ROW
+BEGIN
+    DECLARE hoanThanhLop INT;
+    SELECT COUNT(*)
+    INTO hoanThanhLop
+    FROM LopHoc
+    WHERE LopHoc.MaLop = NEW.MaLop
+      AND LopHoc.TrangThai = 'HoanThanh';
 
+    IF hoanThanhLop = 0 THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Học viên chỉ được thi khi lớp đã hoàn thành.';
+    END IF;
+END
 
 --16. Mỗi học kỳ của một năm học, một lớp chỉ được học tối đa 3 môn. 
 GO
@@ -118,6 +134,22 @@ BEGIN
 END
 
 --18. Trong quan hệ DIEUKIEN giá trị của thuộc tính MAMH và MAMH_TRUOC trong cùng một bộ không được giống nhau (“A”,”A”) và cũng không tồn tại hai bộ (“A”,”B”) và (“B”,”A”). 
+ALTER TABLE DIEUKIEN
+ADD CONSTRAINT chk_khong_trung CHECK (MAMH <> MAMH_TRUOC);
+CREATE TRIGGER KiemTraVongLap
+BEFORE INSERT ON DIEUKIEN
+FOR EACH ROW
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM DIEUKIEN
+        WHERE MAMH = NEW.MAMH_TRUOC
+          AND MAMH_TRUOC = NEW.MAMH
+    ) THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Không được tồn tại vòng lặp giữa các điều kiện tiên quyết.';
+    END IF;
+END;
 
 
 --19. Các giáo viên có cùng học vị, học hàm, hệ số lương thì mức lương bằng nhau. 
@@ -180,6 +212,39 @@ BEGIN
 END
 
 --22. Khi phân công giảng dạy một môn học, phải xét đến thứ tự trước sau giữa các môn học (sau khi học xong những môn học phải học trước mới được học những môn liền sau). 
+CREATE TRIGGER KiemTraPhanCong
+BEFORE INSERT ON PhanCongGiangDay
+FOR EACH ROW
+BEGIN
+    DECLARE chuaHoanThanh INT;
+    SELECT COUNT(*)
+    INTO ChuaHoanThanh
+    FROM DIEUKIEN dk
+    JOIN LopHoc lh ON dk.MAMH_TRUOC = lh.MaMon
+    WHERE dk.MAMH = NEW.MaMon
+      AND lh.TrangThai <> 'HoanThanh';
+
+    IF ChuaHoanThanh > 0 THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Các môn học tiên quyết chưa được hoàn thành.';
+    END IF;
+END
 
 
 --23. Giáo viên chỉ được phân công dạy những môn thuộc khoa giáo viên đó phụ trách.
+CREATE TRIGGER KiemTraKhoaGiangVien
+BEFORE INSERT ON PhanCongGiangDay
+FOR EACH ROW
+BEGIN
+    DECLARE khoaGV INT;
+    DECLARE khoaMon INT;
+
+    SELECT MaKhoa INTO khoaGV FROM GiaoVien WHERE MaGV = NEW.MaGV;
+    SELECT MaKhoa INTO khoaMon FROM MonHoc WHERE MaMon = NEW.MaMon;
+
+    IF khoaGV <> khoaMon THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Giáo viên chỉ được dạy môn học thuộc khoa mình phụ trách.';
+    END IF;
+END;
+
